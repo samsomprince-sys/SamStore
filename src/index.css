@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+:root {
+  --app-bg: #f3f5f7;
+  --app-card: #ffffff;
+  --app-text: #0e1726;
+  --app-hint: #68738a;
+  --app-line: rgba(14, 23, 38, 0.1);
+  --app-link: #0ea371;
+  --accent: #0ea371;
+  --accent-2: #f5a40b;
+  --tg-btn: #0ea371;
+  --tg-btn-text: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-scheme="light"]) {
+    --app-bg: #0b1120;
+    --app-card: #131c31;
+    --app-text: #e8edf7;
+    --app-hint: #8f9ab3;
+    --app-line: rgba(232, 237, 247, 0.1);
+  }
+}
+
+:root[data-scheme="dark"] {
+  --app-bg: #0b1120;
+  --app-card: #131c31;
+  --app-text: #e8edf7;
+  --app-hint: #8f9ab3;
+  --app-line: rgba(232, 237, 247, 0.1);
+}
+
+@theme {
+  --color-surface: var(--app-bg);
+  --color-card: var(--app-card);
+  --color-ink: var(--app-text);
+  --color-mut: var(--app-hint);
+  --color-line: var(--app-line);
+  --color-acc: var(--accent);
+  --color-gold: var(--accent-2);
+}
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    background-color: var(--app-bg);
+    color: var(--app-text);
+    font-family: 'Manrope', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    overscroll-behavior-y: none;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+}
+
+@utility tg-btn {
+  background-color: var(--tg-btn);
+  color: var(--tg-btn-text);
+}
+
+@utility bg-soft {
+  background-color: color-mix(in srgb, var(--app-text) 6%, transparent);
+}
+
+@utility editable-target {
+  outline: 1.5px dashed color-mix(in srgb, var(--accent) 80%, transparent);
+  outline-offset: 2px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility safe-b {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+@keyframes pulsedot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@utility animate-pulsedot {
+  animation: pulsedot 1.3s ease-in-out infinite;
+}
