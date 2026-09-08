@@ -3,9 +3,13 @@ import { HashRouter, Route, Routes } from 'react-router-dom';
 import { Monitor, MonitorSmartphone, Smartphone } from 'lucide-react';
 import { AppProvider } from './context/AppContext';
 import Layout from './components/Layout';
+import ChatFabs from './components/ChatFabs';
+import GuideFab from './components/GuideFab';
 import Store from './pages/Store';
 import B2B from './pages/B2B';
 import Admin from './pages/Admin';
+import OrderHistory from './pages/OrderHistory';
+import { captureRefFromHash } from './lib/ref';
 import { getViewMode, setViewMode } from './lib/view';
 import type { ViewMode } from './lib/view';
 
@@ -53,7 +57,7 @@ function ViewShell({ mode }: { mode: 'mobile' | 'pc' }) {
         title="SamStore DZ"
         src={src}
         style={{ width: `min(${width}px, 100%)`, height: 'calc(100dvh - 46px)' }}
-        className="border-0 bg-white shadow-2xl"
+        className="border-0 bg-[#0b1120] shadow-2xl"
       />
     </div>
   );
@@ -76,6 +80,9 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    captureRefFromHash();
+  }, []);
   if (!framed && view !== 'auto') {
     return <ViewShell mode={view} />;
   }
@@ -83,10 +90,13 @@ export default function App() {
   return (
     <AppProvider>
       <HashRouter>
+        <ChatFabs />
+        <GuideFab />
         <Layout>
           <Routes>
             <Route path="/" element={<Store />} />
             <Route path="/b2b" element={<B2B />} />
+            <Route path="/orders" element={<OrderHistory />} />
             <Route path="/admin" element={<Admin />} />
             <Route path="*" element={<Store />} />
           </Routes>

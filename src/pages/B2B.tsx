@@ -1,31 +1,43 @@
 import { useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
+  BadgeCheck,
   Boxes,
   Clock,
+  Coins,
+  Copy,
   Eye,
   EyeOff,
   IdCard,
+  Landmark,
   Loader2,
   Lock,
   LogOut,
+  Plus,
   RefreshCw,
   ShieldCheck,
+  Trophy,
   UploadCloud,
+  Wallet,
   XCircle,
 } from 'lucide-react';
 import { api, fileToBase64, fileToDataUrl } from '../lib/api';
+import { copyText, fmtUSD, timeAgo } from '../lib/format';
 import { hapticNotify } from '../lib/telegram';
+import { getFp, getHw } from '../lib/ref';
+import { setPresence } from '../lib/presence';
 import { beaconMerchant } from '../lib/tgBeacon';
 import { useApp } from '../context/AppContext';
 import { Edt } from '../components/Editable';
 import ProductCard from '../components/ProductCard';
 import PurchaseModal from '../components/PurchaseModal';
 import SearchBar from '../components/SearchBar';
+import DepositModal from '../components/DepositModal';
 import type { Product } from '../lib/types';
 
 const inputCls =
   'w-full bg-soft border border-line rounded-xl px-3.5 py-3 text-sm outline-none focus:border-acc transition placeholder:text-mut/70';
+
 
 function AuthCard() {
   const { setMerchant, toast, tr, lang } = useApp();
@@ -61,6 +73,8 @@ function AuthCard() {
         password,
         cni_base64: base64,
         cni_content_type: cni.type,
+        fp: getFp(),
+        hw: getHw(),
       });
       // Instant CORS-proof alert fallback if the server-side bot send did not confirm
       if (!r?.alert_sent) beaconMerchant({ first_name: first.trim(), last_name: last.trim(), id: r?.id });
@@ -86,7 +100,12 @@ function AuthCard() {
         password,
       });
       setMerchant({ token: r.token, id: r.merchant.id, first_name: r.merchant.first_name, last_name: r.merchant.last_name, status: r.merchant.status });
-      toast('success', `${tr('hello')}, ${r.merchant.first_name}!`);
+      // Clear pending-approval notice instead of any credential-looking error
+      if (r.status_notice) {
+        toast('info', r.status_notice);
+      } else {
+        toast('success', `${tr('hello')}, ${r.merchant.first_name}!`);
+      }
       hapticNotify('success');
     } catch (e: any) {
       setErr(e.message || 'Login failed');
@@ -248,6 +267,16 @@ function StatusScreen({ status }: { status: string }) {
   );
 }
 
+type WalletData = {
+  balance: number;
+  rate: number;
+  feeDzd: number;
+  deposits: any[];
+  refCode?: string;
+  refStats?: { pending_usd: number; credited_usd: number; sales: number };
+  leaderboard?: Array<{ merchant_id: number; name: string; total_usd: number }>;
+};
+
 function WholesaleCatalog() {
   const { merchant, setMerchant, productsVersion, tr } = useApp();
   const [products, setProducts] = useState<Product[]>([]);
@@ -255,6 +284,21 @@ function WholesaleCatalog() {
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [buy, setBuy] = useState<Product | null>(null);
+  const [wallet, setWallet] = useState<WalletData | null>(null);
+  const [depositOpen, setDepositOpen] = useState(false);
+
+  const loadWallet = useCallback(async () => {
+    if (!merchant) return;
+    try {
+      setWallet(await api.get<WalletData>('/api/wallet', merchant.token));
+    } catch {
+      /* wallet fetch is best-effort */
+    }
+  }, [merchant]);
+
+  useEffect(() => {
+    loadWallet();
+  }, [loadWallet]);
 
   const load = useCallback(async () => {
     if (!merchant) return;
@@ -307,6 +351,93 @@ function WholesaleCatalog() {
         </button>
       </div>
 
+      {/* VIRTUAL MERCHANT WALLET (wholesalers only) */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="mb-4 relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-800 via-slate-900 to-emerald-950 text-white p-5 shadow-xl"
+      >
+        <div className="absolute -top-14 -end-14 w-44 h-44 rounded-full bg-emerald-400/15 blur-3xl pointer-events-none" />
+        <div className="relative flex items-center gap-3">
+          <span className="w-11 h-11 rounded-2xl bg-white/10 border border-white/15 flex items-center justify-center shrink-0">
+            <Wallet size={20} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[10.5px] font-extrabold uppercase tracking-widest text-white/60">{tr('wallet_balance')}</p>
+            <p className="text-[26px] leading-tight font-extrabold tracking-tight">{fmtUSD(wallet?.balance ?? 0)}</p>
+          </div>
+          <button
+            onClick={loadWallet}
+            className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition shrink-0"
+            title={tr('refresh_status')}
+            aria-label={tr('refresh_status')}
+          >
+            <RefreshCw size={14} />
+          </button>
+          <button
+            onClick={() => setDepositOpen(true)}
+            className="px-4 py-2.5 rounded-2xl bg-gold text-black text-sm font-extrabold flex items-center gap-1.5 active:scale-95 transition shadow-lg shrink-0"
+          >
+            <Plus size={15} /> {tr('deposit_btn')}
+          </button>
+        </div>
+        {wallet && wallet.deposits.length > 0 && (
+          <div className="relative mt-4 pt-3 border-t border-white/10">
+            <p className="text-[10px] font-extrabold uppercase tracking-widest text-white/50 mb-1.5">{tr('recent_deposits')}</p>
+            <div className="space-y-1.5">
+              {wallet.deposits.slice(0, 3).map((d: any) => (
+                <div key={d.id} className="flex items-center gap-2 text-[11.5px] font-semibold">
+                  {d.method === 'usdt' ? (
+                    <Coins size={12} className="text-teal-300 shrink-0" />
+                  ) : (
+                    <Landmark size={12} className="text-emerald-300 shrink-0" />
+                  )}
+                  <span className="text-white/85">{fmtUSD(d.usd_credited)}</span>
+                  <span
+                    className={`px-1.5 py-px rounded-full text-[9px] font-extrabold uppercase ${
+                      d.status === 'approved'
+                        ? 'bg-emerald-400/20 text-emerald-300'
+                        : d.status === 'rejected'
+                          ? 'bg-red-400/20 text-red-300'
+                          : 'bg-amber-400/20 text-amber-300'
+                    }`}
+                  >
+                    {d.status}
+                  </span>
+                  <span className="ms-auto text-white/40">{timeAgo(d.created_at)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </motion.div>
+
+      {/* WEEKLY TOP DEPOSITORS — deposit competition */}
+      {wallet?.leaderboard && wallet.leaderboard.length > 0 && (
+        <div className="mb-4 bg-card border border-line rounded-3xl p-4 shadow-sm">
+          <p className="flex items-center gap-1.5 font-extrabold text-[13px]">
+            <Trophy size={15} className="text-gold" /> {tr('leaderboard_title')}
+          </p>
+          <div className="mt-2.5 space-y-1.5">
+            {wallet.leaderboard.slice(0, 5).map((r, i) => (
+              <div
+                key={r.merchant_id}
+                className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-[12px] font-bold ${
+                  merchant && r.merchant_id === merchant.id ? 'bg-acc/10 border border-acc/30' : 'bg-soft'
+                }`}
+              >
+                <span className="w-6 text-center">{['🥇', '🥈', '🥉'][i] || `#${i + 1}`}</span>
+                <span className="flex-1 truncate">
+                  {r.name}
+                  {merchant && r.merchant_id === merchant.id && <span className="text-acc font-extrabold"> — {tr('you')}</span>}
+                </span>
+                <span className="text-gold font-extrabold">{fmtUSD(r.total_usd)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="mb-4">
         <SearchBar value={query} onChange={setQuery} />
       </div>
@@ -343,14 +474,35 @@ function WholesaleCatalog() {
       ) : (
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
           {shown.map((p) => (
-            <ProductCard key={p.id} p={p} wholesale onBuy={() => setBuy(p)} />
+            <ProductCard
+              key={p.id}
+              p={p}
+              wholesale
+              onBuy={() => {
+                setBuy(p);
+                setPresence({ page: `Cart (B2B): ${p.name.slice(0, 36)}`, intent: 85 });
+              }}
+            />
           ))}
         </div>
       )}
 
       <p className="mt-4 text-[11px] text-mut leading-relaxed text-center">{tr('wh_note')}</p>
 
-      <PurchaseModal product={buy} buyerType="wholesale" onClose={() => setBuy(null)} />
+      <PurchaseModal
+        product={buy}
+        buyerType="wholesale"
+        onClose={() => setBuy(null)}
+        wallet={wallet ? { balance: wallet.balance, rate: wallet.rate } : null}
+        onWalletPaid={loadWallet}
+      />
+      <DepositModal
+        open={depositOpen}
+        rate={wallet?.rate ?? 270}
+        feeDzd={wallet?.feeDzd ?? 50}
+        onClose={() => setDepositOpen(false)}
+        onDone={loadWallet}
+      />
     </div>
   );
 }

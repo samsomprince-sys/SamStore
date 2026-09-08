@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -8,10 +8,15 @@ import {
   Coins,
   Copy,
   Landmark,
+  Loader2,
+  LogOut,
+  Plus,
   RefreshCw,
   ShieldCheck,
   Timer,
+  UserRound,
   Users,
+  Wallet,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { copyText } from '../lib/format';
@@ -20,7 +25,36 @@ import { Edt } from '../components/Editable';
 import ProductCard from '../components/ProductCard';
 import PurchaseModal from '../components/PurchaseModal';
 import SearchBar from '../components/SearchBar';
+import DepositModal from '../components/DepositModal';
+import CustomerAuthModal from '../components/CustomerAuth';
+import ChallengeCard from '../components/ChallengeCard';
+import { fmtUSD } from '../lib/format';
+import { bumpBrowseIntent, setPresence } from '../lib/presence';
 import type { Product } from '../lib/types';
+
+function FlashChip({ pct, endsAt }: { pct: number; endsAt: string }) {
+  const { tr } = useApp();
+  const [left, setLeft] = useState(() => Math.max(0, Math.floor((Date.parse(endsAt) - Date.now()) / 1000)));
+  useEffect(() => {
+    const iv = window.setInterval(() => setLeft(Math.max(0, Math.floor((Date.parse(endsAt) - Date.now()) / 1000))), 1000);
+    return () => window.clearInterval(iv);
+  }, [endsAt]);
+  const mm = String(Math.floor(left / 60)).padStart(2, '0');
+  const ss = String(left % 60).padStart(2, '0');
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.96 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="mt-4 flex items-center gap-2 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-600 text-white px-4 py-2.5 shadow-lg"
+    >
+      <Timer size={16} className="animate-pulse" />
+      <span className="text-xs font-extrabold">{tr('flash_live')} −{pct}%</span>
+      <span className="ms-auto text-[11px] font-bold font-mono bg-black/20 rounded-lg px-2 py-1">
+        {tr('flash_ends_in')} {mm}:{ss}
+      </span>
+    </motion.div>
+  );
+}
 
 function CopyValue({ label, value, mono = true }: { label: string; value: string; mono?: boolean }) {
   const [ok, setOk] = useState(false);
@@ -53,6 +87,63 @@ export default function Store() {
   const cat = catFilter;
   const [query, setQuery] = useState('');
   const [buy, setBuy] = useState<Product | null>(null);
+  const [flash, setFlash] = useState<{ active: boolean; pct: number; ends_at: string | null } | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    const go = () =>
+      api
+        .get('/api/flash')
+        .then((d) => live && setFlash(d))
+        .catch(() => {});
+    go();
+    const iv = window.setInterval(go, 30000);
+    return () => {
+      live = false;
+      window.clearInterval(iv);
+    };
+  }, []);
+  const flashPct = flash && flash.active ? flash.pct : 0;
+
+  // Retail customer session + virtual USD wallet (same engine as merchants)
+  const { customer, setCustomer } = useApp();
+  const [custWallet, setCustWallet] = useState<{ balance: number; rate: number; feeDzd: number } | null>(null);
+  const [depOpen, setDepOpen] = useState(false);
+  const [authOpen, setAuthOpen] = useState(false);
+  const [walletBusy, setWalletBusy] = useState(false);
+
+  const loadCustWallet = useCallback(async () => {
+    if (!customer) {
+      setCustWallet(null);
+      return;
+    }
+    try {
+      const d = await api.get<any>('/api/wallet', customer.token);
+      setCustWallet({ balance: Number(d.balance || 0), rate: Number(d.rate) || 270, feeDzd: Number(d.feeDzd) || 50 });
+    } catch {
+      /* keep last known balance */
+    }
+  }, [customer]);
+
+  useEffect(() => {
+    loadCustWallet();
+  }, [loadCustWallet]);
+
+  // Buying-intent signals: searching / filtering = 50%, idle browsing ramps 10%→20%→30%
+  useEffect(() => {
+    const q = query.trim();
+    if (q) setPresence({ page: `Searching: "${q.slice(0, 40)}"`, intent: 50 });
+    else if (cat !== 'All') setPresence({ page: `Category: ${cat}`, intent: 50 });
+  }, [query, cat]);
+
+  useEffect(() => {
+    const t1 = window.setTimeout(() => bumpBrowseIntent(20), 20000);
+    const t2 = window.setTimeout(() => bumpBrowseIntent(30), 50000);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, []);
 
   const load = async () => {
     setError('');
@@ -97,6 +188,73 @@ export default function Store() {
       <div className="px-3 md:px-4 pt-3 md:pt-4">
         <SearchBar value={query} onChange={setQuery} />
       </div>
+
+      {/* RETAIL WALLET (logged-in) / LOGIN PROMPT (guests) */}
+      <div className="px-3 md:px-4 pt-3">
+        {!customer ? (
+          <button
+            onClick={() => setAuthOpen(true)}
+            className="w-full flex items-center gap-3 bg-card border border-line rounded-2xl p-3.5 shadow-sm hover:border-acc transition text-start active:scale-[0.99]"
+          >
+            <span className="w-10 h-10 rounded-xl bg-acc/10 text-acc flex items-center justify-center shrink-0">
+              <UserRound size={18} />
+            </span>
+            <span className="flex-1 min-w-0">
+              <span className="block text-[13px] font-extrabold">{tr('guest_prompt_title')}</span>
+              <span className="block text-[10.5px] text-mut font-semibold mt-0.5">{tr('cust_login_title')}</span>
+            </span>
+            <span className="px-3.5 py-2 rounded-xl tg-btn text-[11px] font-extrabold shrink-0">{tr('guest_prompt_btn')}</span>
+          </button>
+        ) : (
+          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-800 via-slate-900 to-emerald-950 text-white p-4 shadow-xl">
+            <div className="absolute -top-12 -end-12 w-36 h-36 rounded-full bg-emerald-400/15 blur-3xl pointer-events-none" />
+            <div className="relative flex items-center gap-3">
+              <span className="w-10 h-10 rounded-xl bg-white/10 border border-white/15 flex items-center justify-center shrink-0">
+                <Wallet size={18} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-extrabold uppercase tracking-widest text-white/60">
+                  {tr('my_wallet')} — {customer.name} <span className="text-white/40">@{customer.username}</span>
+                </p>
+                <p className="text-xl leading-tight font-extrabold tracking-tight">{custWallet ? fmtUSD(custWallet.balance) : '…'}</p>
+              </div>
+              <button
+                onClick={async () => {
+                  setWalletBusy(true);
+                  await loadCustWallet();
+                  setWalletBusy(false);
+                }}
+                className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition shrink-0"
+                aria-label={tr('refresh_status')}
+                title={tr('refresh_status')}
+              >
+                {walletBusy ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              </button>
+              <button
+                onClick={() => setDepOpen(true)}
+                className="px-4 py-2.5 rounded-2xl bg-gold text-black text-[13px] font-extrabold flex items-center gap-1.5 active:scale-95 transition shadow-lg shrink-0"
+              >
+                <Plus size={14} /> {tr('deposit_btn')}
+              </button>
+              <button
+                onClick={() => setCustomer(null)}
+                className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition shrink-0"
+                aria-label={tr('logout')}
+                title={tr('logout')}
+              >
+                <LogOut size={14} />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* FREE PRODUCT CHALLENGE (logged-in retail buyers) */}
+      {customer && (
+        <div className="px-3 md:px-4 pt-3">
+          <ChallengeCard token={customer.token} />
+        </div>
+      )}
 
       {/* HERO */}
       <section className="mx-3 md:mx-4 mt-3 md:mt-4 relative overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-600 via-teal-700 to-slate-900 text-white shadow-xl">
@@ -165,7 +323,9 @@ export default function Store() {
 
       {/* SHOP */}
       <section id="shop" className="px-3 md:px-4 mt-8 scroll-mt-20">
-        <div className="flex items-end justify-between gap-3">
+        {flashPct > 0 && flash?.ends_at && <FlashChip pct={flashPct} endsAt={flash.ends_at} />}
+
+        <div className="flex items-end justify-between gap-3 mt-3">
           <div>
             <h2 className="text-xl md:text-2xl font-extrabold tracking-tight">
               <Edt req={{ kind: 'content', type: 'text', label: 'Shop section title', ckey: 'shop_title' }} value={t('shop_title')} />
@@ -230,7 +390,15 @@ export default function Store() {
         ) : (
           <div className="mt-4 grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
             {shown.map((p) => (
-              <ProductCard key={p.id} p={p} onBuy={() => setBuy(p)} />
+              <ProductCard
+                key={p.id}
+                p={p}
+                onBuy={() => {
+                  setBuy(p);
+                  setPresence({ page: `Cart: ${p.name.slice(0, 40)}`, intent: 85 });
+                }}
+                discountPct={flashPct}
+              />
             ))}
           </div>
         )}
@@ -348,7 +516,22 @@ export default function Store() {
         </section>
       )}
 
-      <PurchaseModal product={buy} buyerType="retail" onClose={() => setBuy(null)} />
+      <PurchaseModal
+        product={buy}
+        buyerType="retail"
+        flashPct={flashPct}
+        onClose={() => setBuy(null)}
+        wallet={customer && custWallet ? { balance: custWallet.balance, rate: custWallet.rate } : null}
+        onWalletPaid={loadCustWallet}
+      />
+      <DepositModal
+        open={depOpen}
+        rate={custWallet?.rate ?? 270}
+        feeDzd={custWallet?.feeDzd ?? 50}
+        onClose={() => setDepOpen(false)}
+        onDone={loadCustWallet}
+      />
+      <CustomerAuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
     </div>
   );
 }

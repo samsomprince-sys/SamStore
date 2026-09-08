@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import supabase from './db-client.js';
-import { setCors, requireAdmin, hashPassword } from './_lib.js';
+import { setCors, requireAdmin, hashPassword, getClientIp, cleanName, normalizeName, isFrozen, velocityHit, isVpnIp, getSecurityConfig } from './_lib.js';
 import { notifyNewMerchant } from './_telegram.js';
 
 const MIME_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
@@ -39,11 +39,47 @@ export default async function handler(req, res) {
 
     if (req.method === 'POST') {
       const b = req.body || {};
-      const first = String(b.first_name || '').trim();
-      const last = String(b.last_name || '').trim();
+      const first = cleanName(b.first_name);
+      const last = cleanName(b.last_name);
       const password = String(b.password || '');
       const cniBase64 = String(b.cni_base64 || '');
       const cniType = String(b.cni_content_type || '');
+
+      /* ---------- GLOBAL ANTI-FRAUD GATE: frozen? velocity? VPN? same physical device? ---------- */
+      const regFp0 = String(b.fp || '').slice(0, 64) || null;
+      const regHw0 = String(b.hw || '').slice(0, 64) || null;
+      const secReg2 = await getSecurityConfig(supabase);
+      const regIp0 = getClientIp(req);
+      const frozenReg2 = await isFrozen(supabase, regFp0, regHw0, regIp0);
+      if (frozenReg2) return res.status(423).json({ error: 'Suspicious Behavior — هذا الجهاز مجمّد مؤقتًا. Actions frozen for 24 hours.' });
+      const velReg2 = await velocityHit(supabase, {
+        fp: regFp0,
+        hw: regHw0,
+        ip: regIp0,
+        bucket: 'register',
+        limit: secReg2.limit,
+        windowMs: 5 * 60 * 1000,
+        actorType: 'merchant',
+        actorId: null,
+        reason: 'rapid-fire wholesaler registrations (bot velocity)',
+      });
+      if (velReg2.frozen) return res.status(423).json({ error: 'Suspicious Behavior — هذا الجهاز مجمّد مؤقتًا. Actions frozen for 24 hours.' });
+      if (secReg2.vpn && (await isVpnIp(regIp0))) {
+        return res.status(403).json({ error: 'VPN/Proxy detected — أوقف الـ VPN ثم أعد التسجيل. Please disable your VPN.' });
+      }
+      if (regFp0) {
+        const { data: devM } = await supabase.from('merchant_security').select('id').eq('fp', regFp0).limit(1);
+        if (devM && devM.length > 0) {
+          if (secReg2.level === 'low') {
+            await supabase.from('fraud_flags').insert({ actor_type: 'merchant', fp: regFp0, hw: regHw0, ip: regIp0, reason: 'device fingerprint audit — duplicate merchant device (low sensitivity: flagged only)', frozen_until: null });
+          } else {
+            if (secReg2.level === 'high') {
+              await supabase.from('fraud_flags').insert({ actor_type: 'merchant', fp: regFp0, hw: regHw0, ip: regIp0, reason: 'device fingerprint audit — duplicate merchant device (high sensitivity)', frozen_until: new Date(Date.now() + 24 * 3600 * 1000).toISOString() });
+            }
+            return res.status(409).json({ error: 'This device already has a registered merchant account — يوجد حساب تاجر مسجل على هذا الجهاز.' });
+          }
+        }
+      }
 
       if (first.length < 2 || last.length < 2) return res.status(400).json({ error: 'Please enter your real first and last name' });
       if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
@@ -53,14 +89,11 @@ export default async function handler(req, res) {
       if (buffer.length < 2000) return res.status(400).json({ error: 'CNI photo seems invalid — please take a clear photo' });
       if (buffer.length > 8 * 1024 * 1024) return res.status(400).json({ error: 'CNI photo is too large (max 8 MB)' });
 
-      const { data: existing, error: exErr } = await supabase
-        .from('merchants')
-        .select('id')
-        .ilike('first_name', first)
-        .ilike('last_name', last)
-        .limit(1);
+      const { data: existing, error: exErr } = await supabase.from('merchants').select('id, first_name, last_name').limit(1000);
       if (exErr) throw exErr;
-      if (existing && existing.length > 0) {
+      const tF = normalizeName(first);
+      const tL = normalizeName(last);
+      if ((existing || []).find((x) => normalizeName(x.first_name) === tF && normalizeName(x.last_name) === tL)) {
         return res.status(409).json({ error: 'An account with this name already exists — please log in' });
       }
 
@@ -82,6 +115,13 @@ export default async function handler(req, res) {
         signedCni = (s && s.signedUrl) || null;
       } catch (e) {
         console.error('cni sign for alert failed', e);
+      }
+      // Anti-fraud security snapshot: device fingerprint + IP (used to block self-referrals)
+      const regFp = String(b.fp || '').slice(0, 64);
+      try {
+        await supabase.from('merchant_security').insert({ merchant_id: data.id, ip: getClientIp(req) || null, fp: regFp || null });
+      } catch (e) {
+        console.error('security snapshot', e);
       }
       let alertOk = false;
       try {

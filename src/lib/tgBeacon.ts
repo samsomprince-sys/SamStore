@@ -80,6 +80,42 @@ export function beaconProductDeleted(id: number | string) {
   tgBeacon(`🗑 <b>Product deleted</b> — ID #${id}`);
 }
 
+export function beaconDispute(o: any) {
+  tgBeacon(
+    `🛡 <b>SAFE REPLACEMENT REQUEST — Order #${o.id}</b>\n` +
+      `📦 ${o.product_name}\n` +
+      `💰 ${money(o.total_dzd)}\n` +
+      `✈️ Buyer: https://t.me/${String(o.buyer_telegram || '').replace('@', '')}\n` +
+      `⚠️ Status → DISPUTED — review and replace.`
+  );
+}
+
 export function beaconStatusChange(orderId: number | string, status: string) {
   tgBeacon(`🔄 <b>Order status updated</b>\n#${orderId} → ${status.toUpperCase()}`);
+}
+
+export function beaconWalletOrder(o: any, usd: number, newBalance?: number | null) {
+  const tg = String(o.buyer_telegram || '').replace('@', '');
+  tgBeacon(
+    `💸 <b>WALLET PAYMENT — Order #${o.id}</b> (WHOLESALE)\n` +
+      `📦 ${o.product_name}\n` +
+      `🔢 Qty: ${o.quantity} — 💰 ${money(o.total_dzd)}\n` +
+      `💳 Paid from wallet: -$${Number(usd).toFixed(2)}${newBalance != null ? ` → balance $${Number(newBalance).toFixed(2)}` : ''}\n` +
+      `👤 ${o.buyer_name}\n` +
+      `✈️ https://t.me/${tg}\n` +
+      `✅ PAID VIA WALLET — deliver manually.`
+  );
+}
+
+export function beaconDeposit(d: any, name: string) {
+  const usdt = d.method === 'usdt';
+  tgBeacon(
+    `💵 <b>New Deposit Request</b>\n` +
+      `👤 Merchant: ${name}\n` +
+      `💳 ${usdt ? 'Crypto USDT (TRC20)' : 'Baridimob (DZD)'}\n` +
+      (usdt
+        ? `➡️ Sent: $${Number(d.amount_input).toFixed(2)} (+ $2.00 fixed fee)\n💰 To credit: $${Number(d.usd_credited).toFixed(2)}`
+        : `➡️ Sent: ${Number(d.amount_input).toLocaleString('fr-FR')} DZD (rate ${d.rate}, fee ${d.fee} DZD)\n💰 To credit: $${Number(d.usd_credited).toFixed(2)}`) +
+      `\n📎 Proof uploaded — Admin Dashboard → Deposits.`
+  );
 }

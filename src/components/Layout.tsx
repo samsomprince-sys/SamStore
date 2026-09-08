@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
+  BookOpen,
   Boxes,
   CheckCircle2,
   ChevronDown,
@@ -13,12 +14,16 @@ import {
   Layers,
   LayoutGrid,
   Lock,
+  LogOut,
   Megaphone,
+  Menu,
   Monitor,
   MonitorSmartphone,
   Send,
+  ShoppingBag,
   Smartphone,
   Store,
+  UserRound,
   Wand2,
   X,
   XCircle,
@@ -26,6 +31,10 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Edt, EditModal } from './Editable';
+import LiveActivityPop from './LiveActivityPop';
+import DeliveryWatcher from './DeliveryWatcher';
+import CustomerAuthModal from './CustomerAuth';
+import UserGuideModal from './UserGuideModal';
 import { openTelegramLink } from '../lib/telegram';
 import { getViewMode, setViewMode } from '../lib/view';
 import type { ViewMode } from '../lib/view';
@@ -59,7 +68,7 @@ function useOutsideClose(open: boolean, onClose: () => void) {
 function Toasts() {
   const { toasts } = useApp();
   return (
-    <div className="fixed z-[100] left-1/2 -translate-x-1/2 bottom-24 md:bottom-8 flex flex-col items-center gap-2 pointer-events-none w-[min(92vw,380px)]">
+    <div className="fixed z-[100] left-1/2 -translate-x-1/2 bottom-6 flex flex-col items-center gap-2 pointer-events-none w-[min(92vw,380px)]">
       <AnimatePresence>
         {toasts.map((t) => (
           <motion.div
@@ -155,7 +164,7 @@ function SuperEditFab() {
       animate={{ scale: 1, opacity: 1 }}
       transition={{ type: 'spring', damping: 16, stiffness: 240, delay: 0.3 }}
       onClick={() => setEditMode(!editMode)}
-      className={`fixed z-[80] end-4 bottom-24 md:bottom-6 flex items-center gap-2 px-4 py-3 rounded-full text-[13px] font-extrabold shadow-2xl border transition active:scale-95 ${
+      className={`fixed z-[80] end-4 bottom-6 flex items-center gap-2 px-4 py-3 rounded-full text-[13px] font-extrabold shadow-2xl border transition active:scale-95 ${
         editMode ? 'bg-gold text-black border-black/10' : 'tg-btn border-white/20'
       }`}
     >
@@ -171,14 +180,19 @@ const VIEW_OPTIONS: Array<{ id: ViewMode; labelKey: string; icon: typeof Monitor
   { id: 'pc', labelKey: 'view_pc', icon: Monitor },
 ];
 
-function ViewSwitch() {
-  const { tr } = useApp();
-  const [mode, setMode] = useState<ViewMode>(() => getViewMode());
-  const [open, setOpen] = useState(false);
-  const ref = useOutsideClose(open, () => setOpen(false));
+/* ------------------------------------------------ collapsible sidebar */
+
+function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { t, tr, lang, setLang, storeCategories, catFilter, setCatFilter, customer, setCustomer, merchant, isAdmin } = useApp();
+  const [viewMode, setViewModeState] = useState<ViewMode>(() => getViewMode());
+  const [authOpen, setAuthOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const isRtl = lang === 'ar';
 
   useEffect(() => {
-    const sync = () => setMode(getViewMode());
+    const sync = () => setViewModeState(getViewMode());
     window.addEventListener('dz-view-changed', sync);
     window.addEventListener('storage', sync);
     return () => {
@@ -187,197 +201,246 @@ function ViewSwitch() {
     };
   }, []);
 
-  const pick = (m: ViewMode) => {
-    setViewMode(m);
-    setOpen(false);
-  };
+  useEffect(() => {
+    if (open) {
+      const prev = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = prev;
+      };
+    }
+  }, [open]);
 
-  return (
-    <div ref={ref} className="relative shrink-0">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        aria-label="Switch view: Mobile / PC"
-        title="Switch view: Mobile / PC"
-        className={`inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-extrabold border transition active:scale-95 ${
-          open || mode !== 'auto' ? 'bg-acc text-white border-transparent shadow-md' : 'bg-soft border-line text-ink hover:border-acc'
-        }`}
-      >
-        <MonitorSmartphone size={14} />
-      </button>
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -6, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -6, scale: 0.97 }}
-            transition={{ duration: 0.15 }}
-            className="absolute end-0 top-11 z-50 w-52 bg-card border border-line rounded-2xl shadow-2xl p-1.5"
-          >
-            <p className="px-2.5 pt-1.5 pb-1 text-[10px] font-extrabold tracking-widest text-mut">{tr('view_title')}</p>
-            {VIEW_OPTIONS.map((o) => (
-              <button
-                key={o.id}
-                onClick={() => pick(o.id)}
-                className={`w-full flex items-center justify-between px-2.5 py-2.5 rounded-xl text-start text-[13px] font-bold transition ${
-                  mode === o.id ? 'bg-acc/10 text-acc' : 'text-ink hover:bg-soft'
-                }`}
-              >
-                <span className="flex items-center gap-2">
-                  <o.icon size={15} />
-                  {tr(o.labelKey)}
-                </span>
-                {mode === o.id && <CheckCircle2 size={14} />}
-              </button>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-const LANGS: Language[] = ['ar', 'fr', 'en'];
-
-function LangSwitcher() {
-  const { lang, setLang, tr } = useApp();
-  const [open, setOpen] = useState(false);
-  const ref = useOutsideClose(open, () => setOpen(false));
-
-  return (
-    <div ref={ref} className="relative shrink-0">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        aria-label="Language: العربية / Français / English"
-        title="Language: العربية / Français / English"
-        className={`inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-extrabold border transition active:scale-95 ${
-          open ? 'bg-acc text-white border-transparent shadow-md' : 'bg-soft border-line text-ink hover:border-acc'
-        }`}
-      >
-        <Globe size={14} />
-        <span className="uppercase text-[10px] tracking-wide">{lang}</span>
-      </button>
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -6, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -6, scale: 0.97 }}
-            transition={{ duration: 0.15 }}
-            className="absolute end-0 top-11 z-50 w-44 bg-card border border-line rounded-2xl shadow-2xl p-1.5"
-          >
-            <p className="px-2.5 pt-1.5 pb-1 text-[10px] font-extrabold tracking-widest text-mut">{tr('lang_title')}</p>
-            {LANGS.map((l) => (
-              <button
-                key={l}
-                onClick={() => {
-                  setLang(l);
-                  setOpen(false);
-                }}
-                className={`w-full flex items-center justify-between px-2.5 py-2.5 rounded-xl text-start text-[13px] font-bold transition ${
-                  lang === l ? 'bg-acc/10 text-acc' : 'text-ink hover:bg-soft'
-                }`}
-              >
-                {LANG_LABELS[l]}
-                {lang === l && <CheckCircle2 size={14} />}
-              </button>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-function CategoryDropdown() {
-  const { storeCategories, catFilter, setCatFilter, tr } = useApp();
-  const [open, setOpen] = useState(false);
-  const ref = useOutsideClose(open, () => setOpen(false));
-  const navigate = useNavigate();
-  const location = useLocation();
-
-  const pick = (c: string) => {
+  const pickCategory = (c: string) => {
     setCatFilter(c);
-    setOpen(false);
+    onClose();
     if (location.pathname !== '/') navigate('/');
     window.setTimeout(() => {
       document.getElementById('shop')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 150);
+    }, 180);
   };
 
+  const navItem = (
+    <button
+      key="admin-access"
+      onClick={() => {
+        onClose();
+        navigate('/admin');
+      }}
+      className="w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl border border-gold/50 text-gold font-extrabold text-[13px] hover:bg-gold/10 transition active:scale-[0.99]"
+    >
+      <span className="w-8 h-8 rounded-xl bg-gold/15 flex items-center justify-center shrink-0">
+        <Lock size={15} />
+      </span>
+      {tr('admin_access')}
+    </button>
+  );
+
+  const navLink = (to: string, icon: any, label: string) => (
+    <NavLink
+      key={to}
+      to={to}
+      onClick={onClose}
+      className={({ isActive }: { isActive: boolean }) =>
+        `w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl font-extrabold text-[13px] transition active:scale-[0.99] border ${
+          isActive ? 'bg-acc/10 text-acc border-acc/30' : 'text-ink border-transparent hover:bg-soft'
+        }`
+      }
+    >
+      <span className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${location.pathname === to ? 'bg-acc/15' : 'bg-soft'}`}>
+        {icon === 'store' ? <Store size={15} /> : icon === 'b2b' ? <Boxes size={15} /> : <ShoppingBag size={15} />}
+      </span>
+      {label}
+    </NavLink>
+  );
+
   return (
-    <div ref={ref} className="relative shrink-0">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        aria-label="Browse by category"
-        className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-extrabold border transition active:scale-95 ${
-          open || catFilter !== 'All' ? 'bg-acc text-white border-transparent shadow-md' : 'bg-soft border-line text-ink hover:border-acc'
-        }`}
-      >
-        <LayoutGrid size={14} />
-        <span className="max-w-20 truncate">{catFilter === 'All' ? tr('cat_button') : catFilter}</span>
-        <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
+    <>
       <AnimatePresence>
         {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -6, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -6, scale: 0.97 }}
-            transition={{ duration: 0.15 }}
-            className="absolute end-0 top-11 z-50 w-52 bg-card border border-line rounded-2xl shadow-2xl p-1.5"
-          >
-            <p className="px-2.5 pt-1.5 pb-1 text-[10px] font-extrabold tracking-widest text-mut">{tr('cat_title')}</p>
-            {storeCategories.map((c) => (
-              <button
-                key={c}
-                onClick={() => pick(c)}
-                className={`w-full flex items-center justify-between px-2.5 py-2.5 rounded-xl text-start text-[13px] font-bold transition ${
-                  catFilter === c ? 'bg-acc/10 text-acc' : 'text-ink hover:bg-soft'
-                }`}
-              >
-                {c === 'All' ? tr('cat_all') : c}
-                {catFilter === c && <CheckCircle2 size={14} />}
-              </button>
-            ))}
-          </motion.div>
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={onClose}
+              className="fixed inset-0 z-[55] bg-black/60 backdrop-blur-[2px]"
+            />
+            <motion.aside
+              initial={{ x: isRtl ? '100%' : '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: isRtl ? '100%' : '-100%' }}
+              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+              className="fixed top-0 bottom-0 start-0 z-[60] w-[300px] max-w-[86vw] bg-card border-e border-line shadow-2xl flex flex-col"
+              dir={isRtl ? 'rtl' : 'ltr'}
+            >
+              {/* head */}
+              <div className="flex items-center gap-2.5 px-4 h-14 border-b border-line shrink-0">
+                <span className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white shadow-md shrink-0">
+                  <Zap size={16} />
+                </span>
+                <span className="font-extrabold text-[15px] truncate flex-1">
+                  <Edt req={{ kind: 'content', type: 'text', label: 'Store name', ckey: 'store_name' }} value={t('store_name', 'SamStore DZ')} />
+                </span>
+                <button onClick={onClose} className="p-2 rounded-full bg-soft text-mut hover:text-ink transition" aria-label="Close menu">
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto no-scrollbar p-3.5 space-y-5">
+                {/* ADMIN ENTRY — pinned to the very top of the menu */}
+                <section>{navItem}</section>
+
+                {/* PROFILE / AUTH BLOCK */}
+                <section>
+                  {customer ? (
+                    <div className="rounded-2xl bg-soft border border-line p-3 flex items-center gap-2.5">
+                      <span className="w-10 h-10 rounded-xl bg-blue-500/12 text-blue-500 flex items-center justify-center font-extrabold shrink-0">
+                        {customer.name[0]}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-extrabold text-[13px] truncate">{customer.name}</p>
+                        <p className="text-[10.5px] font-bold text-[#229ED9] truncate">@{customer.username}</p>
+                      </div>
+                      <button
+                        onClick={() => setCustomer(null)}
+                        className="p-2 rounded-lg bg-card border border-line text-mut hover:text-red-500 transition shrink-0"
+                        title={tr('logout')}
+                      >
+                        <LogOut size={14} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        onClose();
+                        setAuthOpen(true);
+                      }}
+                      className="w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl tg-btn font-extrabold text-[13px] active:scale-[0.99] transition shadow-lg"
+                    >
+                      <span className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
+                        <UserRound size={15} />
+                      </span>
+                      {tr('guest_prompt_btn')}
+                    </button>
+                  )}
+                  {merchant && (
+                    <div className="mt-2 rounded-2xl bg-violet-500/10 border border-violet-500/25 p-3 flex items-center gap-2.5">
+                      <span className="w-9 h-9 rounded-xl bg-violet-500/15 text-violet-500 flex items-center justify-center font-extrabold shrink-0">
+                        {merchant.first_name[0]}
+                      </span>
+                      <p className="min-w-0 flex-1 text-[12px] font-extrabold truncate">
+                        {merchant.first_name} {merchant.last_name} <span className="block text-[10px] text-violet-400 font-bold">Grossiste · {merchant.status}</span>
+                      </p>
+                    </div>
+                  )}
+                </section>
+
+                {/* NAVIGATION */}
+                <section>
+                  <p className="px-1 pb-1.5 text-[10px] font-extrabold tracking-widest text-mut">NAVIGATION</p>
+                  <div className="space-y-1.5">
+                    {navLink('/', 'store', tr('nav_store'))}
+                    {navLink('/b2b', 'b2b', tr('nav_wholesale'))}
+                    {navLink('/orders', 'orders', tr('my_orders'))}
+                    <button
+                      onClick={() => {
+                        onClose();
+                        setGuideOpen(true);
+                      }}
+                      className="w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl font-extrabold text-[13px] transition active:scale-[0.99] border text-ink border-transparent hover:bg-soft"
+                    >
+                      <span className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-soft">
+                        <BookOpen size={15} />
+                      </span>
+                      {tr('guide_menu')}
+                    </button>
+                  </div>
+                </section>
+
+                {/* CATEGORIES */}
+                <section>
+                  <p className="px-1 pb-1.5 text-[10px] font-extrabold tracking-widest text-mut flex items-center gap-1.5">
+                    <LayoutGrid size={11} /> {tr('cat_title')}
+                  </p>
+                  <div className="space-y-1">
+                    {storeCategories.map((c) => (
+                      <button
+                        key={c}
+                        onClick={() => pickCategory(c)}
+                        className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-start text-[12.5px] font-bold transition ${
+                          catFilter === c ? 'bg-acc/10 text-acc border border-acc/30' : 'text-ink hover:bg-soft border border-transparent'
+                        }`}
+                      >
+                        {c === 'All' ? tr('cat_all') : c}
+                        {catFilter === c && <CheckCircle2 size={14} />}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+                {/* SETTINGS: view mode (language switcher is docked at the sidebar footer) */}
+                <section>
+                  <p className="px-1 pb-1.5 text-[10px] font-extrabold tracking-widest text-mut flex items-center gap-1.5">
+                    <Globe size={11} /> {tr('view_title')}
+                  </p>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {VIEW_OPTIONS.map((o) => (
+                      <button
+                        key={o.id}
+                        onClick={() => setViewMode(o.id)}
+                        className={`py-2.5 rounded-xl border flex flex-col items-center gap-1 transition active:scale-95 ${
+                          viewMode === o.id ? 'bg-acc/10 text-acc border-acc/40' : 'bg-soft border-line text-mut'
+                        }`}
+                      >
+                        <o.icon size={15} />
+                        <span className="text-[9.5px] font-extrabold leading-tight text-center">{tr(o.labelKey)}</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              </div>
+
+              {/* foot — language toggle row docked at the very bottom of the sidebar */}
+              <div className="p-3.5 border-t border-line shrink-0">
+                <p className="px-1 pb-1.5 text-[10px] font-extrabold tracking-widest text-mut flex items-center gap-1.5">
+                  <Globe size={11} /> {tr('lang_title')}
+                </p>
+                <div className="grid grid-cols-3 gap-1.5 mb-2.5">
+                  {(['ar', 'fr', 'en'] as Language[]).map((l) => (
+                    <button
+                      key={l}
+                      onClick={() => setLang(l)}
+                      className={`py-2.5 rounded-xl text-[11px] font-extrabold border transition active:scale-95 ${
+                        lang === l ? 'bg-acc text-white border-transparent shadow-md' : 'bg-soft border-line text-mut'
+                      }`}
+                    >
+                      {LANG_LABELS[l]}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={() => openTelegramLink(`https://t.me/${t('support_telegram', 'SamStoreDZ').replace('@', '')}`)}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl bg-[#229ED9]/12 text-[#229ED9] text-xs font-extrabold active:scale-[0.99] transition"
+                >
+                  <Send size={14} /> @{t('support_telegram', 'SamStoreDZ').replace('@', '')}
+                </button>
+              </div>
+            </motion.aside>
+          </>
         )}
       </AnimatePresence>
-    </div>
-  );
-}
 
-function BottomNav() {
-  const { tr } = useApp();
-  const items = [
-    { to: '/', icon: Store, label: tr('nav_store') },
-    { to: '/b2b', icon: Boxes, label: tr('nav_wholesale') },
-    { to: '/admin', icon: Lock, label: tr('nav_admin') },
-  ];
-  return (
-    <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-card/90 backdrop-blur-md border-t border-line">
-      <div className="safe-b">
-        <div className="grid grid-cols-3">
-          {items.map((it) => (
-            <NavLink
-              key={it.to}
-              to={it.to}
-              className={({ isActive }) =>
-                `flex flex-col items-center gap-0.5 py-2.5 text-[10px] font-bold transition ${isActive ? 'text-acc' : 'text-mut'}`
-              }
-            >
-              <it.icon size={19} />
-              <span className="truncate max-w-full px-1">{it.label}</span>
-            </NavLink>
-          ))}
-        </div>
-      </div>
-    </nav>
+      <CustomerAuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
+      <UserGuideModal open={guideOpen} onClose={() => setGuideOpen(false)} />
+    </>
   );
 }
 
 export default function Layout({ children }: { children: ReactNode }) {
   const { t, content, tr } = useApp();
   const supportUser = t('support_telegram', 'SamStoreDZ').replace('@', '');
+  const [navOpen, setNavOpen] = useState(false);
 
   return (
     <div className="min-h-[100dvh] bg-surface text-ink flex flex-col">
@@ -388,8 +451,16 @@ export default function Layout({ children }: { children: ReactNode }) {
         </div>
       )}
 
+      {/* CLEAN HEADER: menu + logo only (everything moved into the collapsible sidebar) */}
       <header className="sticky top-0 z-30 bg-card/85 backdrop-blur-md border-b border-line">
-        <div className="max-w-6xl mx-auto px-4 h-14 flex items-center gap-2">
+        <div className="max-w-6xl mx-auto px-4 h-14 flex items-center gap-2.5">
+          <button
+            onClick={() => setNavOpen(true)}
+            className="w-10 h-10 rounded-xl bg-soft border border-line flex items-center justify-center active:scale-95 transition shrink-0 hover:border-acc"
+            aria-label="Open menu"
+          >
+            <Menu size={18} />
+          </button>
           <Link to="/" className="flex items-center gap-2 min-w-0">
             <span className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white shadow-md shrink-0">
               <Zap size={16} />
@@ -399,43 +470,20 @@ export default function Layout({ children }: { children: ReactNode }) {
             </span>
           </Link>
           <div className="flex-1" />
-          <ViewSwitch />
-          <CategoryDropdown />
-          <LangSwitcher />
-          <NavLink
-            to="/admin"
-            aria-label="Admin Access"
-            className={({ isActive }) =>
-              `shrink-0 inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-xl text-xs font-extrabold border transition active:scale-95 ${
-                isActive ? 'bg-gold text-black border-transparent shadow-md' : 'border-gold/50 text-gold hover:bg-gold/10'
-              }`
-            }
+          <button
+            onClick={() => setNavOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-acc/10 text-acc text-[11px] font-extrabold active:scale-95 transition"
           >
-            <Lock size={13} />
-            <span className="hidden sm:inline">{tr('admin_access')}</span>
-          </NavLink>
-          <nav className="hidden md:flex items-center gap-1">
-            <NavLink
-              to="/"
-              className={({ isActive }) =>
-                `px-3.5 py-2 rounded-xl text-[13px] font-bold transition ${isActive ? 'bg-acc/10 text-acc' : 'text-mut hover:text-ink'}`
-              }
-            >
-              {tr('nav_store')}
-            </NavLink>
-            <NavLink
-              to="/b2b"
-              className={({ isActive }) =>
-                `px-3.5 py-2 rounded-xl text-[13px] font-bold transition ${isActive ? 'bg-acc/10 text-acc' : 'text-mut hover:text-ink'}`
-              }
-            >
-              {tr('nav_wholesale')}
-            </NavLink>
-          </nav>
+            <LayoutGrid size={13} />
+            {tr('cat_button')}
+            <ChevronDown size={12} />
+          </button>
         </div>
       </header>
 
-      <main className="flex-1 w-full pb-24 md:pb-8">{children}</main>
+      <Sidebar open={navOpen} onClose={() => setNavOpen(false)} />
+
+      <main className="flex-1 w-full pb-8">{children}</main>
 
       <footer className="border-t border-line bg-card mt-4">
         <div className="max-w-6xl mx-auto px-4 py-7 flex flex-col md:flex-row md:items-center gap-4">
@@ -460,10 +508,11 @@ export default function Layout({ children }: { children: ReactNode }) {
         </div>
       </footer>
 
-      <BottomNav />
       <SuperEditFab />
       <EditBanner />
       <EditModal />
+      <LiveActivityPop />
+      <DeliveryWatcher />
       <Toasts />
     </div>
   );

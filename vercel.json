@@ -9,5 +9,19 @@
     "VITE_GOOGLE_AUTH_PROXY": "https://designarena.ai/auth/google/callback",
     "FULLSTACK_PROJECT_REF": "jvcepriabcuxcrhmkjca",
     "FULLSTACK_RESTORE_API_URL": "https://designarena.ai/api/fullstack-restore"
-  }
+  },
+  "rewrites": [
+    {
+      "source": "/loaderio-7a2beafee36061b680504eecabfe2037",
+      "destination": "/loaderio-7a2beafee36061b680504eecabfe2037.txt"
+    },
+    {
+      "source": "/loaderio-7a2beafee36061b680504eecabfe2037.txt",
+      "destination": "/loaderio-7a2beafee36061b680504eecabfe2037.txt"
+    },
+    {
+      "source": "/loaderio-7a2beafee36061b680504eecabfe2037.html",
+      "destination": "/loaderio-7a2beafee36061b680504eecabfe2037.txt"
+    }
+  ]
 }

@@ -20,6 +20,11 @@ export function timeAgo(iso?: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
+export function fmtUSD(n: number | string): string {
+  const v = Number(n) || 0;
+  return `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 export async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);

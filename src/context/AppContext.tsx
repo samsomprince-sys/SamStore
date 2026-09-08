@@ -7,6 +7,7 @@ import type { ContentMap } from '../lib/types';
 import { DICT, getStoredLang, setStoredLang } from '../lib/i18n';
 import type { Language } from '../lib/i18n';
 import { beaconContentSaved } from '../lib/tgBeacon';
+import { initPresence, setPresenceRole } from '../lib/presence';
 
 export type ToastKind = 'success' | 'error' | 'info';
 export type Toast = { id: number; kind: ToastKind; text: string };
@@ -30,6 +31,13 @@ export type MerchantSession = {
   status: string;
 };
 
+export type CustomerSession = {
+  token: string;
+  id: number;
+  name: string;
+  username: string;
+};
+
 type AppContextValue = {
   tgUser: TgUser | null;
   inTelegram: boolean;
@@ -44,6 +52,8 @@ type AppContextValue = {
   setEditMode: (on: boolean) => void;
   merchant: MerchantSession | null;
   setMerchant: (m: MerchantSession | null) => void;
+  customer: CustomerSession | null;
+  setCustomer: (c: CustomerSession | null) => void;
   toasts: Toast[];
   toast: (kind: ToastKind, text: string) => void;
   editRequest: EditRequest | null;
@@ -71,8 +81,14 @@ export function useApp(): AppContextValue {
 const LS_ADMIN = 'dz_admin_token';
 const LS_EDIT = 'dz_super_edit';
 const LS_MERCHANT = 'dz_merchant';
+const LS_CUSTOMER = 'dz_customer';
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  // live presence heartbeat for the admin realtime traffic board (15s)
+  useEffect(() => {
+    initPresence();
+  }, []);
+
   const [tgUser] = useState<TgUser | null>(() => getTgUser());
   const [inTelegram] = useState<boolean>(() => initTelegram());
   const [content, setContent] = useState<ContentMap>({});
@@ -216,6 +232,43 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setMerchantState(m);
   }, []);
 
+  // ---- retail customer session -------------------------------------------------------
+  const [customer, setCustomerState] = useState<CustomerSession | null>(null);
+  useEffect(() => {
+    const raw = localStorage.getItem(LS_CUSTOMER);
+    if (!raw) return;
+    let c: CustomerSession | null = null;
+    try {
+      c = JSON.parse(raw);
+    } catch {
+      localStorage.removeItem(LS_CUSTOMER);
+      return;
+    }
+    if (!c?.token) return;
+    setCustomerState(c);
+    api
+      .post('/api/auth', { type: 'verify' }, c.token)
+      .then((r: any) => {
+        if (r?.valid && r.customer) {
+          const upd: CustomerSession = { ...c!, ...r.customer };
+          setCustomerState(upd);
+          localStorage.setItem(LS_CUSTOMER, JSON.stringify(upd));
+        } else {
+          localStorage.removeItem(LS_CUSTOMER);
+          setCustomerState(null);
+        }
+      })
+      .catch(() => {
+        /* offline — keep session */
+      });
+  }, []);
+
+  const setCustomer = useCallback((c: CustomerSession | null) => {
+    if (c) localStorage.setItem(LS_CUSTOMER, JSON.stringify(c));
+    else localStorage.removeItem(LS_CUSTOMER);
+    setCustomerState(c);
+  }, []);
+
   // ---- content saving ------------------------------------------------------------
   const saveContent = useCallback(
     async (key: string, value: string) => {
@@ -232,6 +285,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const clearEditRequest = useCallback(() => setEditRequest(null), []);
   const bumpProducts = useCallback(() => setProductsVersion((v) => v + 1), []);
 
+  // report role to the live tracker (trader counter tracks merchants strictly)
+  useEffect(() => {
+    setPresenceRole(isAdmin ? 'admin' : merchant ? 'merchant' : customer ? 'customer' : 'guest');
+  }, [isAdmin, merchant, customer]);
+
   const value = useMemo<AppContextValue>(
     () => ({
       tgUser,
@@ -247,6 +305,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setEditMode,
       merchant,
       setMerchant,
+      customer,
+      setCustomer,
       toasts,
       toast,
       editRequest,
@@ -276,6 +336,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setEditMode,
       merchant,
       setMerchant,
+      customer,
+      setCustomer,
       toasts,
       toast,
       editRequest,

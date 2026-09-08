@@ -1,11 +1,13 @@
 @import "tailwindcss";
 
 :root {
-  --app-bg: #f3f5f7;
-  --app-card: #ffffff;
-  --app-text: #0e1726;
-  --app-hint: #68738a;
-  --app-line: rgba(14, 23, 38, 0.1);
+  /* DARK MODE is the locked default for the entire app (retail, B2B, admin, modals).
+     Telegram ThemeParams still override these live when running inside Telegram. */
+  --app-bg: #0b1120;
+  --app-card: #131c31;
+  --app-text: #e8edf7;
+  --app-hint: #8f9ab3;
+  --app-line: rgba(232, 237, 247, 0.1);
   --app-link: #0ea371;
   --accent: #0ea371;
   --accent-2: #f5a40b;
@@ -13,23 +15,7 @@
   --tg-btn-text: #ffffff;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-scheme="light"]) {
-    --app-bg: #0b1120;
-    --app-card: #131c31;
-    --app-text: #e8edf7;
-    --app-hint: #8f9ab3;
-    --app-line: rgba(232, 237, 247, 0.1);
-  }
-}
-
-:root[data-scheme="dark"] {
-  --app-bg: #0b1120;
-  --app-card: #131c31;
-  --app-text: #e8edf7;
-  --app-hint: #8f9ab3;
-  --app-line: rgba(232, 237, 247, 0.1);
-}
+/* Dormant light palette (kept for reference only — dark mode is locked app-wide) */
 
 @theme {
   --color-surface: var(--app-bg);
@@ -41,15 +27,54 @@
   --color-gold: var(--accent-2);
 }
 
+:root {
+  color-scheme: dark;
+}
+
 @layer base {
   html {
     -webkit-tap-highlight-color: transparent;
+    background-color: #0b1120;
+    color-scheme: dark;
   }
   body {
     background-color: var(--app-bg);
     color: var(--app-text);
     font-family: 'Manrope', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
     overscroll-behavior-y: none;
+  }
+  /* Hard dark paint on every structural surface (body, wrappers, panels, header, inputs) */
+  html[data-scheme="light"] {
+    color-scheme: dark;
+  }
+
+  /* GLOBAL DARK SWEEP — every native input / textarea / select + its dropdown options */
+  input,
+  textarea,
+  select {
+    background-color: #1a1a1a;
+    color: #f4f4f5;
+    color-scheme: dark;
+    caret-color: #10b981;
+  }
+  select option {
+    background-color: #1a1a1a;
+    color: #f4f4f5;
+  }
+  ::placeholder {
+    color: #8f9ab3;
+    opacity: 1;
+  }
+  :focus-visible {
+    outline-color: var(--accent);
+  }
+  /* locked dark surfaces for any leftover hardcoded-light layers */
+  dialog,
+  [role="dialog"],
+  [data-radix-popper-content-wrapper] {
+    background-color: #121212;
+    color: #f4f4f5;
+    color-scheme: dark;
   }
   ::selection {
     background: color-mix(in srgb, var(--accent) 30%, transparent);
@@ -77,6 +102,32 @@
   &::-webkit-scrollbar {
     display: none;
   }
+}
+
+@utility guide-fab-float {
+  position: fixed !important;
+  inset-inline-start: auto !important;
+  left: 24px !important;
+  bottom: 24px !important;
+  z-index: 99999 !important;
+}
+
+@utility chat-fab-float {
+  position: fixed !important;
+  inset-inline-end: auto !important;
+  left: auto !important;
+  right: 24px !important;
+  bottom: 24px !important;
+  z-index: 999999 !important;
+}
+
+@utility chat-fab-float-raised {
+  position: fixed !important;
+  inset-inline-end: auto !important;
+  left: auto !important;
+  right: 24px !important;
+  bottom: 88px !important;
+  z-index: 999999 !important;
 }
 
 @utility safe-b {

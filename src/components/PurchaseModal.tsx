@@ -11,14 +11,20 @@ import {
   Plus,
   Send,
   ShieldCheck,
+  Timer,
   UploadCloud,
+  Wallet,
   X,
 } from 'lucide-react';
 import { api, fileToBase64, fileToDataUrl } from '../lib/api';
 import { copyText, fmtDZD } from '../lib/format';
 import { hapticNotify, openTelegramLink } from '../lib/telegram';
-import { beaconOrder } from '../lib/tgBeacon';
+import { beaconOrder, beaconWalletOrder } from '../lib/tgBeacon';
+import { fmtUSD } from '../lib/format';
+import { getFp, getHw, getRef } from '../lib/ref';
+import { setPresence } from '../lib/presence';
 import { useApp } from '../context/AppContext';
+import { CustomerAuthForm } from './CustomerAuth';
 import type { Order, Product } from '../lib/types';
 
 function CopyChip({ text }: { text: string }) {
@@ -42,22 +48,65 @@ export default function PurchaseModal({
   product,
   buyerType,
   onClose,
+  wallet = null,
+  onWalletPaid,
+  flashPct = 0,
 }: {
   product: Product | null;
   buyerType: 'retail' | 'wholesale';
   onClose: () => void;
+  wallet?: { balance: number; rate: number } | null;
+  onWalletPaid?: () => void;
+  flashPct?: number;
 }) {
-  const { tgUser, t, toast, merchant, tr } = useApp();
+  const { tgUser, t, toast, merchant, customer, tr } = useApp();
+  const needRetailAuth = buyerType === 'retail' && !customer;
   const [qty, setQty] = useState(1);
   const [name, setName] = useState('');
   const [tg, setTg] = useState('');
-  const [method, setMethod] = useState<'baridimob' | 'usdt'>('baridimob');
+  const [method, setMethod] = useState<'baridimob' | 'usdt' | 'wallet'>('baridimob');
   const [receipt, setReceipt] = useState<File | null>(null);
   const [preview, setPreview] = useState('');
   const [sentUsdt, setSentUsdt] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [order, setOrder] = useState<Order | null>(null);
+  const [holdId, setHoldId] = useState<number | null>(null);
+  const [holdLeft, setHoldLeft] = useState(0);
+
+  // Anti-hoarding: open checkout = 5-minute stock reservation for THIS buyer only
+  useEffect(() => {
+    setHoldId(null);
+    setHoldLeft(0);
+    if (!product) return;
+    // 85% intent: product pack added to cart context (checkout opened)
+    setPresence({ page: `Cart: ${product.name.slice(0, 40)}`, intent: 85 });
+    let alive = true;
+    api
+      .post<any>('/api/holds', {
+        product_id: product.id,
+        qty: buyerType === 'wholesale' ? Math.max(1, product.min_qty || 1) : 1,
+        fp: getFp(),
+      })
+      .then((h) => {
+        if (alive) {
+          setHoldId(h.id);
+          setHoldLeft(300);
+        }
+      })
+      .catch((e) => {
+        if (alive) setErr(e.message || 'Reservation failed');
+      });
+    return () => {
+      alive = false;
+    };
+  }, [product, buyerType]);
+
+  useEffect(() => {
+    if (holdLeft <= 0) return;
+    const iv = window.setInterval(() => setHoldLeft((s) => Math.max(0, s - 1)), 1000);
+    return () => window.clearInterval(iv);
+  }, [holdLeft > 0]);
 
   const minQty = useMemo(
     () => (product ? (buyerType === 'wholesale' ? Math.max(1, product.min_qty || 1) : 1) : 1),
@@ -67,13 +116,15 @@ export default function PurchaseModal({
   useEffect(() => {
     if (product) {
       setQty(buyerType === 'wholesale' ? Math.max(1, product.min_qty || 1) : 1);
-      const prefName = tgUser
-        ? [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ')
-        : merchant
-          ? `${merchant.first_name} ${merchant.last_name}`
-          : '';
+      const prefName = customer
+        ? customer.name
+        : tgUser
+          ? [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ')
+          : merchant
+            ? `${merchant.first_name} ${merchant.last_name}`
+            : '';
       setName(prefName);
-      setTg(tgUser?.username ? `@${tgUser.username}` : '');
+      setTg(customer ? `@${customer.username}` : tgUser?.username ? `@${tgUser.username}` : '');
       setMethod('baridimob');
       setReceipt(null);
       setPreview('');
@@ -81,7 +132,7 @@ export default function PurchaseModal({
       setErr('');
       setOrder(null);
     }
-  }, [product, tgUser, merchant, buyerType]);
+  }, [product, tgUser, merchant, customer, buyerType]);
 
   useEffect(() => {
     if (product) {
@@ -93,18 +144,26 @@ export default function PurchaseModal({
     }
   }, [product]);
 
-  const total = product ? product.price_dzd * qty : 0;
+  const unitNow =
+    product ? (flashPct > 0 && buyerType === 'retail' ? Math.max(1, Math.round(product.price_dzd * (1 - flashPct / 100))) : product.price_dzd) : 0;
+  const total = unitNow * qty;
+  const walletRate = wallet?.rate ?? 270;
+  const walletBalance = wallet?.balance ?? 0;
+  const usdNeeded = Math.round((total / walletRate) * 100) / 100;
+  // USDT checkout button price: (DZD total / admin rate) + $2.00 fixed crypto fee — shown in USD only
+  const usdtTotalUsd = Math.round((total / walletRate + 2) * 100) / 100;
+  const walletEnough = wallet !== null && walletBalance + 1e-9 >= usdNeeded;
 
   const submit = async () => {
     if (!product) return;
     setErr('');
-    if (name.trim().length < 2) return setErr(tr('v_name'));
+    // Name/handle checks removed — identity comes from the logged-in session (server-trusted)
     const cleanTg = tg.replace(/@/g, '').trim();
-    if (cleanTg.length < 3) return setErr(tr('v_tg'));
     if (qty < minQty) return setErr(`${tr('v_min')} ${minQty}.`);
     if (method === 'baridimob' && !receipt) return setErr(tr('v_receipt'));
     if (method === 'usdt' && !sentUsdt) return setErr(tr('v_usdt'));
 
+    if (holdId && holdLeft <= 0) return setErr(tr('hold_expired'));
     setBusy(true);
     try {
       let receiptUrl: string | undefined;
@@ -128,14 +187,24 @@ export default function PurchaseModal({
           payment_method: method,
           receipt_url: receiptUrl,
           buyer_type: buyerType,
+          hold_id: holdId,
+          fp: getFp(),
+          hw: getHw(),
+          ref_code: buyerType === 'retail' ? getRef() : undefined,
+          tg_chat_id: tgUser?.id ? String(tgUser.id) : undefined,
         },
-        buyerType === 'wholesale' ? merchant?.token : undefined
+        buyerType === 'wholesale' ? merchant?.token : customer?.token
       );
       setOrder(created);
       hapticNotify('success');
       toast('success', `${tr('order_received')} #${created.id}`);
       // Instant CORS-proof alert fallback if the server-side bot send did not confirm
-      if (!(created as any)?.alert_sent) beaconOrder(created);
+      if (!(created as any)?.alert_sent) {
+        if (method === 'wallet')
+          beaconWalletOrder(created, (created as any)?.usd_charged ?? usdNeeded, (created as any)?.new_balance);
+        else beaconOrder(created);
+      }
+      if (method === 'wallet') onWalletPaid?.();
     } catch (e: any) {
       setErr(e.message || tr('v_order_fail'));
       hapticNotify('error');
@@ -161,7 +230,7 @@ export default function PurchaseModal({
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 80, opacity: 0 }}
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e: any) => e.stopPropagation()}
             className="w-full sm:w-[min(94vw,460px)] max-h-[92dvh] overflow-y-auto no-scrollbar bg-card border border-line rounded-t-3xl sm:rounded-3xl shadow-2xl"
           >
             {order ? (
@@ -180,15 +249,28 @@ export default function PurchaseModal({
                   <span className="text-mut font-semibold">{tr('total')}</span>
                   <span className="font-extrabold text-gold">{fmtDZD(order.total_dzd)}</span>
                 </div>
-                <button
-                  onClick={() => openTelegramLink(`https://t.me/${supportUser}`)}
-                  className="w-full py-3 rounded-xl tg-btn font-bold text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition"
-                >
-                  <Send size={15} /> {tr('open_tg')}
-                </button>
                 <button onClick={onClose} className="text-sm font-semibold text-mut hover:text-ink transition">
                   {tr('back_to_store')}
                 </button>
+              </div>
+            ) : needRetailAuth ? (
+              <div className="p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex gap-3 min-w-0">
+                    <img src={product.image_url} alt={product.name} className="w-16 h-16 rounded-xl object-cover border border-line shrink-0" />
+                    <div className="min-w-0">
+                      <h3 className="font-bold text-[15px] leading-snug">{product.name}</h3>
+                      <p className="text-sm font-extrabold text-gold mt-1">{fmtDZD(unitNow)}</p>
+                    </div>
+                  </div>
+                  <button onClick={onClose} className="p-2 rounded-full bg-soft text-mut hover:text-ink transition shrink-0" aria-label="Close">
+                    <X size={16} />
+                  </button>
+                </div>
+                <div className="mt-4">
+                  <p className="mb-3 text-center text-[12.5px] font-bold">{tr('cust_login_title')}</p>
+                  <CustomerAuthForm />
+                </div>
               </div>
             ) : (
               <div className="p-5">
@@ -198,7 +280,12 @@ export default function PurchaseModal({
                     <div className="min-w-0">
                       <h3 className="font-bold text-[15px] leading-snug">{product.name}</h3>
                       <p className="text-xs text-mut mt-0.5">{buyerType === 'wholesale' ? tr('wholesale_order') : tr('retail_order')}</p>
-                      <p className="text-sm font-extrabold text-gold mt-1">{fmtDZD(product.price_dzd)}</p>
+                      <p className="text-sm font-extrabold text-gold mt-1">
+                        {fmtDZD(unitNow)}
+                        {flashPct > 0 && buyerType === 'retail' && (
+                          <span className="ms-1.5 text-[10px] font-semibold text-mut line-through">{fmtDZD(product.price_dzd)}</span>
+                        )}
+                      </p>
                     </div>
                   </div>
                   <button onClick={onClose} className="p-2 rounded-full bg-soft text-mut hover:text-ink transition shrink-0" aria-label="Close">
@@ -230,25 +317,23 @@ export default function PurchaseModal({
                     </div>
                   </div>
 
-                  <input
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder={tr('name_ph')}
-                    className="w-full bg-soft border border-line rounded-xl px-3.5 py-3 text-sm outline-none focus:border-acc transition placeholder:text-mut/70"
-                  />
-                  <div className="relative">
-                    <Send size={15} className="absolute start-3.5 top-1/2 -translate-y-1/2 text-mut" />
-                    <input
-                      value={tg}
-                      onChange={(e) => setTg(e.target.value)}
-                      placeholder={tr('tg_ph')}
-                      className="w-full bg-soft border border-line rounded-xl ps-10 pe-3.5 py-3 text-sm outline-none focus:border-acc transition placeholder:text-mut/70"
-                    />
-                  </div>
+                  {holdId !== null && (
+                    <div className={`flex items-center justify-center gap-1.5 text-[11px] font-bold ${holdLeft > 0 ? 'text-amber-500' : 'text-red-500'}`}>
+                      <Timer size={12} />
+                      {holdLeft > 0
+                        ? `${tr('hold_reserved')} — ${String(Math.floor(holdLeft / 60)).padStart(2, '0')}:${String(holdLeft % 60).padStart(2, '0')}`
+                        : tr('hold_expired')}
+                    </div>
+                  )}
+
+                  {/* handle/name fields removed — session identity only */}
 
                   <div className="grid grid-cols-2 gap-2">
                     <button
-                      onClick={() => setMethod('baridimob')}
+                      onClick={() => {
+                        setMethod('baridimob');
+                        if (product) setPresence({ page: `Payment: ${product.name.slice(0, 38)}`, intent: 95 });
+                      }}
                       className={`p-3 rounded-2xl border text-start transition active:scale-[0.98] ${
                         method === 'baridimob' ? 'border-acc bg-acc/10' : 'border-line bg-soft'
                       }`}
@@ -258,7 +343,10 @@ export default function PurchaseModal({
                       <p className="text-[10px] text-mut">{tr('baridimob_desc')}</p>
                     </button>
                     <button
-                      onClick={() => setMethod('usdt')}
+                      onClick={() => {
+                        setMethod('usdt');
+                        if (product) setPresence({ page: `Payment: ${product.name.slice(0, 38)}`, intent: 95 });
+                      }}
                       className={`p-3 rounded-2xl border text-start transition active:scale-[0.98] ${
                         method === 'usdt' ? 'border-acc bg-acc/10' : 'border-line bg-soft'
                       }`}
@@ -267,9 +355,48 @@ export default function PurchaseModal({
                       <p className="mt-1.5 text-xs font-extrabold">USDT</p>
                       <p className="text-[10px] text-mut">{tr('usdt_desc')}</p>
                     </button>
+                    {(buyerType === 'wholesale' || (buyerType === 'retail' && wallet)) && (
+                      <button
+                        onClick={() => {
+                          setMethod('wallet');
+                          if (product) setPresence({ page: `Payment: ${product.name.slice(0, 38)}`, intent: 95 });
+                        }}
+                        className={`col-span-2 p-3 rounded-2xl border text-start transition active:scale-[0.98] ${
+                          method === 'wallet' ? 'border-acc bg-acc/10' : 'border-line bg-soft'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Wallet size={18} className={method === 'wallet' ? 'text-acc' : 'text-mut'} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-extrabold">{tr('pay_wallet')}</p>
+                            <p className="text-[10px] text-mut">{tr('wallet_method_sub')}</p>
+                          </div>
+                          <span className="text-xs font-extrabold text-gold">{wallet ? fmtUSD(walletBalance) : '…'}</span>
+                        </div>
+                      </button>
+                    )}
                   </div>
 
-                  {method === 'baridimob' ? (
+                  {method === 'wallet' ? (
+                    <div className="space-y-2.5">
+                      {/* Wallet checkout strictly shows: USD product price + available balance. No deposit fees here. */}
+                      <div className="bg-soft rounded-2xl p-3.5 space-y-1.5 text-[12.5px] font-semibold">
+                        <p className="flex justify-between gap-2">
+                          <span className="text-mut">{tr('wallet_price_usd')}</span>
+                          <span className="font-extrabold text-gold">{fmtUSD(usdNeeded)}</span>
+                        </p>
+                        <p className="flex justify-between gap-2 pt-1.5 border-t border-line">
+                          <span className="text-mut">{tr('wallet_your_balance')}</span>
+                          <span className="font-extrabold">{wallet ? fmtUSD(walletBalance) : '…'}</span>
+                        </p>
+                      </div>
+                      {!walletEnough && (
+                        <p className="flex items-center gap-1.5 text-xs font-semibold text-red-500">
+                          <Wallet size={13} /> {tr('wallet_insufficient')}
+                        </p>
+                      )}
+                    </div>
+                  ) : method === 'baridimob' ? (
                     <div className="space-y-2.5">
                       <div className="bg-soft rounded-2xl p-3 flex items-center gap-2">
                         <div className="min-w-0">
@@ -332,11 +459,15 @@ export default function PurchaseModal({
 
                   <button
                     onClick={submit}
-                    disabled={busy || product.stock <= 0}
+                    disabled={busy || product.stock <= 0 || (method === 'wallet' && !walletEnough)}
                     className="w-full py-3.5 rounded-2xl tg-btn font-extrabold text-sm flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98] transition"
                   >
-                    {busy ? <Loader2 size={16} className="animate-spin" /> : <ShieldCheck size={16} />}
-                    {tr('confirm_order')} — {fmtDZD(total)}
+                    {busy ? <Loader2 size={16} className="animate-spin" /> : method === 'wallet' ? <Wallet size={16} /> : <ShieldCheck size={16} />}
+                    {method === 'wallet'
+                      ? tr('pay_now_wallet')
+                      : method === 'usdt'
+                        ? `${tr('confirm_order')} — ${fmtUSD(usdtTotalUsd)} USD`
+                        : `${tr('confirm_order')} — ${fmtDZD(total)}`}
                   </button>
                   <p className="text-center text-[10px] text-mut leading-relaxed px-2">
                     {tr('manual_note')}

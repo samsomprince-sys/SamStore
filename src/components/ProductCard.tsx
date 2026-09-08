@@ -9,13 +9,17 @@ export default function ProductCard({
   p,
   onBuy,
   wholesale = false,
+  discountPct = 0,
 }: {
   p: Product;
   onBuy: () => void;
   wholesale?: boolean;
+  discountPct?: number;
 }) {
   const { tr } = useApp();
   const out = p.stock <= 0;
+  const showDisc = !wholesale && discountPct > 0;
+  const display = showDisc ? Math.max(1, Math.round(p.price_dzd * (1 - discountPct / 100))) : p.price_dzd;
   return (
     <motion.div
       layout
@@ -23,8 +27,13 @@ export default function ProductCard({
       animate={{ opacity: 1, y: 0 }}
       whileHover={{ y: -4 }}
       transition={{ type: 'spring', damping: 22, stiffness: 260 }}
-      className="bg-card border border-line rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-shadow flex flex-col"
+      className="relative bg-card border border-line rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-shadow flex flex-col"
     >
+      {showDisc && (
+        <span className="absolute top-2 start-2 z-10 bg-red-500 text-white text-[10px] font-extrabold px-2 py-0.5 rounded-full shadow">
+          −{discountPct}%
+        </span>
+      )}
       <EdtImage
         req={{ kind: 'product', type: 'image', label: `Image — ${p.name}`, productId: p.id, field: 'image_url' }}
         src={p.image_url}
@@ -60,8 +69,11 @@ export default function ProductCard({
               req={{ kind: 'product', type: 'price', label: 'Price (DZD)', productId: p.id, field: 'price_dzd' }}
               value={String(p.price_dzd)}
             >
-              {fmtDZD(p.price_dzd)}
+              {fmtDZD(display)}
             </Edt>
+            {showDisc && (
+              <span className="block text-[10.5px] font-semibold text-mut line-through">{fmtDZD(p.price_dzd)}</span>
+            )}
           </div>
           <button
             disabled={out}

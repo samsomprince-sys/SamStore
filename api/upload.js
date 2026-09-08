@@ -2,7 +2,7 @@ import supabase from './db-client.js';
 import { setCors, requireAdmin } from './_lib.js';
 
 const PUBLIC_BUCKETS = ['receipts'];           // buyers upload receipts without login
-const ADMIN_BUCKETS = ['content', 'products']; // admin-only uploads (site + product images)
+const ADMIN_BUCKETS = ['content', 'products', 'deliveries']; // admin-only uploads (site, products, delivery images)
 
 export default async function handler(req, res) {
   setCors(res);

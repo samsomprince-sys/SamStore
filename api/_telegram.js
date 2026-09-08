@@ -75,7 +75,7 @@ const esc = (s) =>
 
 const money = (n) => `${Number(n || 0).toLocaleString('fr-FR')} DZD`;
 
-export function notifyNewOrder(supabase, o) {
+export function notifyNewOrder(supabase, o, extraLine = '') {
   const method =
     o.payment_method === 'usdt'
       ? 'USDT (TRC20) — buyer confirmed payment'
@@ -88,7 +88,8 @@ export function notifyNewOrder(supabase, o) {
     `💰 Total: <b>${money(o.total_dzd)}</b>\n` +
     `💳 ${esc(method)}\n` +
     `👤 ${esc(o.buyer_name)}\n` +
-    `✈️ Buyer Telegram: <a href="https://t.me/${tg}">@${tg}</a>\n` +
+    `✈️ Buyer Telegram: <a href="https://t.me/${tg}">@${tg}</a>` +
+    `${extraLine}\n` +
     `👉 Open the Admin Dashboard to review & deliver manually.`;
   return sendAdminAlert(supabase, text, o.receipt_url || null);
 }
@@ -132,4 +133,71 @@ export function notifyProductEdit(supabase, p, fields) {
 
 export function notifyProductDeleted(supabase, id) {
   return sendAdminAlert(supabase, `🗑 <b>Product deleted</b> — ID #${id}`);
+}
+
+export function notifyDepositRequest(supabase, d, name) {
+  const usdt = d.method === 'usdt';
+  const amountLines = usdt
+    ? `➡️ Sent: $${Number(d.amount_input).toFixed(2)} (+ $${Number(d.fee).toFixed(2)} fixed crypto fee)\n💰 To credit: <b>$${Number(d.usd_credited).toFixed(2)}</b>\n`
+    : `➡️ Sent: ${Number(d.amount_input).toLocaleString('fr-FR')} DZD (rate ${d.rate}, fee ${Number(d.fee).toLocaleString('fr-FR')} DZD)\n💰 To credit: <b>$${Number(d.usd_credited).toFixed(2)}</b>\n`;
+  const text =
+    `💵 <b>New Deposit Request #${d.id}</b>\n` +
+    `👤 Merchant: ${esc(name)}\n` +
+    `💳 ${usdt ? 'Crypto USDT (TRC20)' : 'Baridimob (DZD)'}\n` +
+    amountLines +
+    `📎 Proof attached${d.proof_url ? ' below' : ''}\n` +
+    `👉 Dashboard → Deposits to approve & credit the wallet.`;
+  return sendAdminAlert(supabase, text, d.proof_url || null);
+}
+
+export function notifyWalletOrder(supabase, o, usdCharged, newBalance) {
+  const tg = esc(o.buyer_telegram);
+  const text =
+    `💸 <b>WALLET PAYMENT — Order #${o.id}</b> (WHOLESALE / B2B)\n` +
+    `📦 ${esc(o.product_name)}\n` +
+    `🔢 Qty: ${o.quantity} × ${money(o.unit_price)} → <b>${money(o.total_dzd)}</b>\n` +
+    `💳 Paid instantly from merchant wallet: <b>-$${Number(usdCharged).toFixed(2)}</b>\n` +
+    `🏦 Merchant new balance: <b>$${Number(newBalance).toFixed(2)}</b>\n` +
+    `👤 ${esc(o.buyer_name)}\n` +
+    `✈️ Buyer Telegram: <a href="https://t.me/${tg}">@${tg}</a>\n` +
+    `✅ Status: PAID VIA WALLET — deliver manually.`;
+  return sendAdminAlert(supabase, text);
+}
+
+export function notifyFlashStarted(supabase, pct, minutes) {
+  return sendAdminAlert(
+    supabase,
+    `⚡ <b>FLASH HAPPY HOUR STARTED</b>\n🏷 Discount: -${pct}% on ALL retail products\n⏱ Duration: ${minutes} minutes\n🛡 Anti-hoarding: 5-minute cart expiration active.`
+  );
+}
+
+export function notifyFlashStopped(supabase) {
+  return sendAdminAlert(supabase, '⏹ <b>Flash Happy Hour ended</b> — all prices back to normal.');
+}
+
+export function notifyDispute(supabase, o) {
+  const tg = esc(o.buyer_telegram);
+  const text =
+    `🛡 <b>SAFE REPLACEMENT REQUEST — Order #${o.id}</b>\n` +
+    `📦 ${esc(o.product_name)}\n` +
+    `💰 ${money(o.total_dzd)}\n` +
+    `👤 ${esc(o.buyer_name)}\n` +
+    `✈️ Buyer: <a href="https://t.me/${tg}">@${tg}</a>\n` +
+    `⚠️ Status set to DISPUTED — review and replace the product.`;
+  return sendAdminAlert(supabase, text);
+}
+
+export function notifyReferralCredited(supabase, name, usd, orderId) {
+  return sendAdminAlert(
+    supabase,
+    `🤝 <b>Referral commission credited</b>\n👤 Trader: ${esc(name)}\n💰 +$${Number(usd).toFixed(2)} → active USD wallet\n🧾 Source order: #${orderId} (delivered ✓)`
+  );
+}
+
+export function notifyDepositHandled(supabase, d, name, newBalance) {
+  const ok = d.status === 'approved';
+  const text = ok
+    ? `✅ <b>Deposit #${d.id} APPROVED</b>\n👤 ${esc(name)}\n💰 Credited: $${Number(d.usd_credited).toFixed(2)}\n🏦 New wallet balance: <b>$${Number(newBalance).toFixed(2)}</b>`
+    : `❌ <b>Deposit #${d.id} REJECTED</b> — ${esc(name)}`;
+  return sendAdminAlert(supabase, text);
 }

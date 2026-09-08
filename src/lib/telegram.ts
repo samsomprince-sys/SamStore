@@ -30,25 +30,38 @@ export function applyTelegramTheme(): boolean {
   if (!tg) return false;
   const root = document.documentElement;
   const params = tg.themeParams || {};
-  const map: Record<string, string> = {
-    bg_color: '--app-bg',
-    secondary_bg_color: '--app-card',
-    text_color: '--app-text',
-    hint_color: '--app-hint',
+  // FORCED DARK MODE: surfaces/text stay dark everywhere; Telegram params only
+  // tune accents/buttons when they match the dark scheme.
+  const accentMap: Record<string, string> = {
     link_color: '--app-link',
     button_color: '--tg-btn',
     button_text_color: '--tg-btn-text',
   };
   let applied = false;
-  for (const [key, cssVar] of Object.entries(map)) {
+  for (const [key, cssVar] of Object.entries(accentMap)) {
     const val = params[key];
     if (typeof val === 'string' && val) {
       root.style.setProperty(cssVar, val);
       applied = true;
     }
   }
-  if (tg.colorScheme === 'dark') root.dataset.scheme = 'dark';
-  else if (tg.colorScheme === 'light') root.dataset.scheme = 'light';
+  if (tg.colorScheme === 'dark') {
+    // Dark Telegram: accept its dark surface colors too (they stay dark by design)
+    const darkMap: Record<string, string> = {
+      bg_color: '--app-bg',
+      secondary_bg_color: '--app-card',
+      text_color: '--app-text',
+      hint_color: '--app-hint',
+    };
+    for (const [key, cssVar] of Object.entries(darkMap)) {
+      const val = params[key];
+      if (typeof val === 'string' && val) {
+        root.style.setProperty(cssVar, val);
+        applied = true;
+      }
+    }
+  }
+  root.dataset.scheme = 'dark';
   root.dataset.tg = 'true';
   return applied;
 }

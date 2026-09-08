@@ -153,7 +153,7 @@ export function EditModal() {
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: 40, opacity: 0, scale: 0.97 }}
             transition={{ type: 'spring', damping: 26, stiffness: 320 }}
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e: any) => e.stopPropagation()}
             className="w-[min(94vw,440px)] bg-card border border-line rounded-3xl p-5 shadow-2xl"
           >
             <div className="flex items-center justify-between mb-4">
