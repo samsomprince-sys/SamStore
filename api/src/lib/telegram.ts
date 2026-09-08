@@ -12,6 +12,8 @@ declare global {
 }
 
 export function getTg(): any {
+  // SSR/Node-safe: never touch `window` unless it exists
+  if (typeof window === 'undefined') return undefined;
   try {
     return window.Telegram?.WebApp;
   } catch {
@@ -26,6 +28,7 @@ export function getTgUser(): TgUser | null {
 }
 
 export function applyTelegramTheme(): boolean {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return false;
   const tg = getTg();
   if (!tg) return false;
   const root = document.documentElement;
@@ -67,6 +70,7 @@ export function applyTelegramTheme(): boolean {
 }
 
 export function initTelegram(): boolean {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return false;
   const tg = getTg();
   if (!tg) return false;
   try {

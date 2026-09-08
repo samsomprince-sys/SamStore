@@ -71,7 +71,7 @@ export function captureRefFromHash() {
     if (!ref && window.location.search) ref = new URLSearchParams(window.location.search).get('ref');
     // Telegram Mini App deep link: startapp payload arrives via initDataUnsafe.start_param
     try {
-      const sp = (window as any)?.Telegram?.WebApp?.initDataUnsafe?.start_param;
+      const sp = (typeof window !== 'undefined' ? (window as any)?.Telegram?.WebApp?.initDataUnsafe?.start_param : undefined);
       if (!ref && typeof sp === 'string' && sp && sp !== 'store') ref = sp;
     } catch {
       /* ignore */
