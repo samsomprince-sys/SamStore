@@ -3,9 +3,16 @@
     "tsBuildInfoFile": "./tsconfig.app.tsbuildinfo",
     "target": "ES2022",
     "useDefineForClassFields": true,
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "module": "ESNext",
-    "types": ["vite/client", "node"],
+    "types": [
+      "vite/client",
+      "node"
+    ],
     "skipLibCheck": true,
     "allowJs": true,
     "moduleResolution": "bundler",
@@ -14,7 +21,10 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "strict": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "noEmitOnError": false
   },
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }

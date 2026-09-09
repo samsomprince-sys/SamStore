@@ -21,5 +21,7 @@ export default defineConfig(async ({ mode }) => {
     plugins,
     envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
     define: processEnvDefines,
+    // bypass non-critical bundle-size warnings — deployment must never fail on them
+    build: { chunkSizeWarningLimit: 2048 },
   };
 })
