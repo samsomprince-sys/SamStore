@@ -1,3 +1,6 @@
+/** Explicit backend cloud server (Render/Vercel) — used for /api/products + /api/activity. */
+const BACKEND_URL = 'https://sam-store-dz.vercel.app';
+
 type Options = {
   method?: string;
   body?: unknown;
@@ -9,7 +12,10 @@ export async function request<T = any>(path: string, opts: Options = {}): Promis
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
   if (opts.token) headers.Authorization = `Bearer ${opts.token}`;
 
-  const res = await fetch(path, {
+  // /api/products and /api/activity hit the explicit backend URL; everything else stays relative.
+  const base = path.startsWith('/api/products') || path.startsWith('/api/activity') ? BACKEND_URL : '';
+
+  const res = await fetch(base + path, {
     method: opts.method || 'GET',
     headers,
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
